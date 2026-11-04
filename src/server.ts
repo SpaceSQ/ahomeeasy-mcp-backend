@@ -1,6 +1,17 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { z } from "zod";
+/**
+ * 手写极简 MCP Streamable HTTP（JSON-RPC 2.0）处理器。
+ *
+ * 不依赖 SDK 的 Transport 封装，直接实现规范最小子集：
+ *  - POST  → JSON-RPC（initialize / notifications/initialized / tools/list / tools/call / ping）
+ *            响应统一为 `application/json`（Streamable HTTP 规范允许非 SSE 响应）。
+ *  - GET   → 普通浏览器返回健康 JSON；`Accept: text/event-stream` 的 SSE 探测返回 405
+ *            （本服务是纯请求/响应式，不提供服务器推送 SSE 流，规范允许）。
+ *  - DELETE→ 终止会话（无状态，直接 204）。
+ *  - OPTIONS → CORS 预检。
+ *
+ * 完全免鉴权：无凭证 / Meta Muse 平台的公开探测请求（tools/list 等）一律放行。
+ */
+
 import {
   ECOSYSTEMS,
   ROOM_TYPES,
@@ -14,118 +25,205 @@ import {
 
 const SERVER_INFO = { name: "ahomeeasy-mcp-backend", version: "1.0.0" } as const;
 
-/**
- * 创建并注册 4 个 SmartDrop 工具的 McpServer。
- * 每个请求都新建一份（无状态），Vercel 单次调用即单请求，天然安全。
- */
-export function createServer(): McpServer {
-  const server = new McpServer(SERVER_INFO);
+// 协议版本协商：客户端未指定或版本不兼容时回退到此默认版本。
+const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
+const SUPPORTED_PROTOCOL_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 
-  // 1) 兼容性诊断
-  server.registerTool(
-    "check_smarthome_compatibility",
-    {
-      title: "Check Smart Home Compatibility",
-      description:
-        "Given a target smart-home ecosystem and a list of device models, diagnose protocol-level compatibility, flag conflicts, and suggest bridges where needed. Deterministic, protocol-based (no product-level claims).",
-      inputSchema: {
-        target_ecosystem: z
-          .enum(ECOSYSTEMS.map((e) => e.id) as [string, ...string[]])
-          .describe("Target ecosystem id, e.g. apple_home, amazon_alexa, google_home, home_assistant."),
-        device_models: z
-          .array(z.string().min(1))
-          .min(1)
-          .describe("List of device model names/descriptions to check."),
+// ---------------------------------------------------------------------------
+// 工具定义（tools/list 返回的标准 JSON Schema）
+// ---------------------------------------------------------------------------
+
+const TOOL_DEFINITIONS = [
+  {
+    name: "check_smarthome_compatibility",
+    title: "Check Smart Home Compatibility",
+    description:
+      "Given a target smart-home ecosystem and a list of device models, diagnose protocol-level compatibility, flag conflicts, and suggest bridges where needed. Deterministic, protocol-based (no product-level claims).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target_ecosystem: {
+          type: "string",
+          enum: ECOSYSTEMS.map((e) => e.id),
+          description: "Target ecosystem id, e.g. apple_home, amazon_alexa, google_home, home_assistant.",
+        },
+        device_models: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description: "List of device model names/descriptions to check.",
+        },
       },
+      required: ["target_ecosystem", "device_models"],
     },
-    async (args) => {
-      const result = checkCompatibility(args.target_ecosystem, args.device_models);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    },
-  );
-
-  // 2) 智能氛围套餐报价
-  server.registerTool(
-    "curate_smart_vibe_drop",
-    {
-      title: "Curate Smart Vibe Drop",
-      description:
-        "Deterministically curate a smart-home 'vibe drop' bundle: 1 anchor + 2 accessories for a room, with placeholder pricing, a quote id, validity, and a checkout link. No real retail prices are asserted.",
-      inputSchema: {
-        room_type: z
-          .enum(ROOM_TYPES as [string, ...string[]])
-          .describe("Room to outfit."),
-        ecosystem: z
-          .enum(ECOSYSTEMS.map((e) => e.id) as [string, ...string[]])
-          .describe("Target ecosystem id."),
-        vibe_style: z
-          .enum(VIBE_STYLES as [string, ...string[]])
-          .describe("Desired aesthetic/ambience style."),
-        max_budget_usd: z
-          .number()
-          .positive()
-          .max(100000)
-          .describe("Maximum budget in USD."),
-        rent_friendly: z
-          .boolean()
-          .describe("Prefer renter-friendly (non-hardwired) items."),
+  },
+  {
+    name: "curate_smart_vibe_drop",
+    title: "Curate Smart Vibe Drop",
+    description:
+      "Deterministically curate a smart-home 'vibe drop' bundle: 1 anchor + 2 accessories for a room, with placeholder pricing, a quote id, validity, and a checkout link. No real retail prices are asserted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room_type: { type: "string", enum: ROOM_TYPES, description: "Room to outfit." },
+        ecosystem: { type: "string", enum: ECOSYSTEMS.map((e) => e.id), description: "Target ecosystem id." },
+        vibe_style: { type: "string", enum: VIBE_STYLES, description: "Desired aesthetic/ambience style." },
+        max_budget_usd: { type: "number", minimum: 0.01, maximum: 100000, description: "Maximum budget in USD." },
+        rent_friendly: { type: "boolean", description: "Prefer renter-friendly (non-hardwired) items." },
       },
+      required: ["room_type", "ecosystem", "vibe_style", "max_budget_usd", "rent_friendly"],
     },
-    async (args) => {
-      const result = curateVibeDrop(args);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    },
-  );
-
-  // 3) 结账
-  server.registerTool(
-    "checkout_smart_drop_bundle",
-    {
-      title: "Checkout Smart Drop Bundle",
-      description:
-        "Resolve a previously curated quote_id into a checkout URL (Stripe Link / Shopify, or a demo placeholder), only after the user confirms.",
-      inputSchema: {
-        quote_id: z.string().min(1).describe("The quote id returned by curate_smart_vibe_drop."),
-        user_confirmed: z.boolean().describe("Whether the user explicitly confirmed the bundle."),
+  },
+  {
+    name: "checkout_smart_drop_bundle",
+    title: "Checkout Smart Drop Bundle",
+    description:
+      "Resolve a previously curated quote_id into a checkout URL (Stripe Link / Shopify, or a demo placeholder), only after the user confirms.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        quote_id: { type: "string", description: "The quote id returned by curate_smart_vibe_drop." },
+        user_confirmed: { type: "boolean", description: "Whether the user explicitly confirmed the bundle." },
       },
+      required: ["quote_id", "user_confirmed"],
     },
-    async (args) => {
-      const result = checkoutBundle(args.quote_id, args.user_confirmed);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    },
-  );
-
-  // 4) 本地安装商匹配
-  server.registerTool(
-    "match_local_installer",
-    {
-      title: "Match Local Installer",
-      description:
-        "Match a local installer for a given location/zip and service scope. Sandbox placeholder only — returns a deterministic confirmation code, never real installer identities or ratings.",
-      inputSchema: {
-        location_or_zip: z
-          .string()
-          .min(1)
-          .describe("US ZIP code or city/state string."),
-        service_scope: z
-          .enum(SERVICE_SCOPES as [string, ...string[]])
-          .describe("Service scope: install, consultation, retrofit, troubleshoot."),
+  },
+  {
+    name: "match_local_installer",
+    title: "Match Local Installer",
+    description:
+      "Match a local installer for a given location/zip and service scope. Sandbox placeholder only — returns a deterministic confirmation code, never real installer identities or ratings.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        location_or_zip: { type: "string", description: "US ZIP code or city/state string." },
+        service_scope: {
+          type: "string",
+          enum: SERVICE_SCOPES,
+          description: "Service scope: install, consultation, retrofit, troubleshoot.",
+        },
       },
+      required: ["location_or_zip", "service_scope"],
     },
-    async (args) => {
-      const result = matchInstaller(args.location_or_zip, args.service_scope);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    },
-  );
+  },
+] as const;
 
-  return server;
+// ---------------------------------------------------------------------------
+// JSON-RPC 响应助手
+// ---------------------------------------------------------------------------
+
+type JsonRpcRequest = {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: string;
+  params?: Record<string, unknown>;
+};
+
+function jsonRpcResult(id: string | number, result: unknown): object {
+  return { jsonrpc: "2.0", id, result };
 }
 
-/**
- * 处理一个 Web 标准 Request，返回 Response。
- * 完全免鉴权（无凭证也放行 tools/list 等公开探测请求）。
- * GET=SSE、POST=JSON-RPC、DELETE=会话终止，均由 transport 内部处理。
- */
+function jsonRpcError(id: string | number | null, code: number, message: string): object {
+  return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 工具调用分派
+// ---------------------------------------------------------------------------
+
+function callTool(name: string, args: Record<string, unknown>): { content: { type: "text"; text: string }[]; isError: boolean } {
+  switch (name) {
+    case "check_smarthome_compatibility": {
+      const result = checkCompatibility(args.target_ecosystem as string, args.device_models as string[]);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    case "curate_smart_vibe_drop": {
+      const result = curateVibeDrop(args as unknown as Parameters<typeof curateVibeDrop>[0]);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    case "checkout_smart_drop_bundle": {
+      const result = checkoutBundle(args.quote_id as string, args.user_confirmed as boolean);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    case "match_local_installer": {
+      const result = matchInstaller(args.location_or_zip as string, args.service_scope as string);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    default: {
+      return {
+        content: [{ type: "text", text: `Unknown tool: ${name}` }],
+        isError: true,
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 单条 JSON-RPC 消息处理
+// ---------------------------------------------------------------------------
+
+function handleMessage(msg: JsonRpcRequest): object | null {
+  const method = msg.method ?? "";
+  const id = (msg.id ?? null) as string | number | null;
+
+  switch (method) {
+    case "initialize": {
+      const clientVersion = (msg.params?.protocolVersion as string) ?? DEFAULT_PROTOCOL_VERSION;
+      const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(clientVersion)
+        ? clientVersion
+        : DEFAULT_PROTOCOL_VERSION;
+      return jsonRpcResult(id as string | number, {
+        protocolVersion,
+        capabilities: { tools: { listChanged: true } },
+        serverInfo: SERVER_INFO,
+        instructions:
+          "HomeEasy SmartDrop MCP server. Use tools/list to discover the 4 tools, then tools/call to run them.",
+      });
+    }
+    case "tools/list": {
+      return jsonRpcResult(id as string | number, {
+        tools: TOOL_DEFINITIONS.map((t) => ({ ...t })),
+      });
+    }
+    case "tools/call": {
+      const name = (msg.params?.name as string) ?? "";
+      const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
+      try {
+        const result = callTool(name, args);
+        return jsonRpcResult(id as string | number, result);
+      } catch (err) {
+        return jsonRpcError(id, -32602, `Invalid params: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    case "ping": {
+      return jsonRpcResult(id as string | number, {});
+    }
+    case "resources/list": {
+      return jsonRpcResult(id as string | number, { resources: [] });
+    }
+    case "prompts/list": {
+      return jsonRpcResult(id as string | number, { prompts: [] });
+    }
+    default: {
+      return jsonRpcError(id, -32601, `Method not found: ${method}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP 入口
+// ---------------------------------------------------------------------------
+
 const HEALTH_PAYLOAD = {
   status: "online",
   service: "HomeEasy SmartDrop MCP Server",
@@ -144,57 +242,11 @@ const getHeader = (req: Request, name: string): string => {
   return obj?.[name.toLowerCase()] ?? "";
 };
 
-/**
- * 归一化 MCP Streamable HTTP 必需头，兼容 Muse 等宽松客户端。
- *
- * SDK 的 WebStandardStreamableHTTPServerTransport 做了严格校验：
- *  - POST（JSON-RPC initialize/call）：Accept 必须同时含 `application/json` 与 `text/event-stream`，
- *    且 Content-Type 必须是 application/json；否则返回 406/415。
- *  - GET（SSE 流）：Accept 必须含 `text/event-stream`；否则返回 406。
- *
- * 但 Muse 的探测客户端可能只发 `Accept: application/json`（标准 JSON-RPC 习惯），
- * 导致握手被 406 拒绝、表现为「didn't answer like a Streamable HTTP MCP server」。
- * 这里在进入 transport 前补全这些头，保证以合法的 SSE / Streamable HTTP 协议正确响应。
- */
-function normalizeMCPHeaders(req: Request): Request {
-  const method = req.method.toUpperCase();
-  const accept = getHeader(req, "accept");
-  const contentType = getHeader(req, "content-type");
-
-  const headers = new Headers(req.headers);
-  let changed = false;
-
-  if (method === "POST") {
-    if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
-      headers.set("accept", "application/json, text/event-stream");
-      changed = true;
-    }
-    if (!contentType.toLowerCase().includes("application/json")) {
-      headers.set("content-type", "application/json");
-      changed = true;
-    }
-  } else if (method === "GET") {
-    if (!accept.includes("text/event-stream")) {
-      headers.set("accept", "text/event-stream");
-      changed = true;
-    }
-  }
-
-  if (!changed) return req;
-
-  const body = method === "POST" || method === "PUT" || method === "PATCH" ? req.body : undefined;
-  const init = {
-    method: req.method,
-    headers,
-    body: body ?? undefined,
-    duplex: "half",
-  } as RequestInit & { duplex?: "half" | "full" };
-  return new Request(req.url, init);
-}
-
 export async function handleMCPRequest(req: Request): Promise<Response> {
+  const method = req.method.toUpperCase();
+
   // OPTIONS 预检（CORS）
-  if (req.method === "OPTIONS") {
+  if (method === "OPTIONS") {
     return new Response(null, {
       status: 204,
       headers: {
@@ -206,29 +258,62 @@ export async function handleMCPRequest(req: Request): Promise<Response> {
     });
   }
 
-  // 普通浏览器直接 GET 访问（不带 SSE 的 Accept 头、且非 MCP 协议探测）→ 返回友好健康检查 JSON。
-  // 真正的 MCP GET 会带 `Accept: text/event-stream`，或带 `MCP-Protocol-Version` 头，均不受影响。
-  if (req.method === "GET") {
+  // GET：浏览器返回健康 JSON；SSE 探测（Accept: text/event-stream 或带 MCP 协议头）返回 405
+  // ——本服务是纯请求/响应式 JSON-RPC，不提供服务器推送 SSE 流，规范允许（SDK 客户端也把 405 视为预期）。
+  if (method === "GET") {
     const accept = getHeader(req, "accept");
-    const wantsSSE = accept.includes("text/event-stream");
     const hasMCPHeader = getHeader(req, "mcp-protocol-version") !== "";
-    if (!wantsSSE && !hasMCPHeader) {
-      return new Response(JSON.stringify(HEALTH_PAYLOAD, null, 2), {
-        status: 200,
+    if (accept.includes("text/event-stream") || hasMCPHeader) {
+      return new Response("This MCP server is request/response only; use POST JSON-RPC. GET SSE streaming is not offered.", {
+        status: 405,
         headers: {
-          "Content-Type": "application/json; charset=utf-8",
+          Allow: "POST, DELETE, OPTIONS",
+          "Content-Type": "text/plain; charset=utf-8",
           "Access-Control-Allow-Origin": "*",
         },
       });
     }
+    return jsonResponse(HEALTH_PAYLOAD);
   }
 
-  // 补全 MCP 必需头后交给 transport 处理（POST JSON-RPC / GET SSE / DELETE 会话终止）。
-  const normalized = normalizeMCPHeaders(req);
-  const server = createServer();
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // 无状态模式：不校验 session，免鉴权
+  // DELETE：终止会话（无状态，直接成功）
+  if (method === "DELETE") {
+    return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
+
+  // POST：JSON-RPC
+  if (method === "POST") {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(jsonRpcError(null, -32700, "Parse error: Invalid JSON"), 400);
+    }
+
+    // 批量请求（数组）
+    if (Array.isArray(body)) {
+      const responses = (body as JsonRpcRequest[])
+        .map((msg) => handleMessage(msg))
+        .filter((r): r is object => r !== null);
+      return jsonResponse(responses.length === 1 ? responses[0] : responses);
+    }
+
+    const msg = body as JsonRpcRequest;
+
+    // 通知（无 id）：MCP 客户端如 notifications/initialized 不期待响应，返回 202。
+    if (msg.id === undefined || msg.id === null) {
+      return new Response(null, {
+        status: 202,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    return jsonResponse(handleMessage(msg));
+  }
+
+  // 其他方法
+  return new Response("Method Not Allowed", {
+    status: 405,
+    headers: { Allow: "GET, POST, DELETE, OPTIONS" },
   });
-  await server.connect(transport);
-  return transport.handleRequest(normalized);
 }
