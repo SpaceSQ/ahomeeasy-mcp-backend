@@ -126,6 +126,13 @@ export function createServer(): McpServer {
  * 完全免鉴权（无凭证也放行 tools/list 等公开探测请求）。
  * GET=SSE、POST=JSON-RPC、DELETE=会话终止，均由 transport 内部处理。
  */
+const HEALTH_PAYLOAD = {
+  status: "online",
+  service: "HomeEasy SmartDrop MCP Server",
+  version: "1.0.0",
+  endpoint: "/mcp",
+} as const;
+
 export async function handleMCPRequest(req: Request): Promise<Response> {
   // OPTIONS 预检（CORS）
   if (req.method === "OPTIONS") {
@@ -136,6 +143,19 @@ export async function handleMCPRequest(req: Request): Promise<Response> {
         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "*",
         "Access-Control-Expose-Headers": "Mcp-Session-Id",
+      },
+    });
+  }
+
+  // 普通浏览器直接 GET 访问（不带 SSE 的 Accept 头）→ 返回友好健康检查 JSON，
+  // 避免误触发底层 MCP SSE 握手或返回 406/500。真正的 MCP GET 会带 `Accept: text/event-stream`，不受影响。
+  const accept = req.headers.get("accept") ?? "";
+  if (req.method === "GET" && !accept.includes("text/event-stream")) {
+    return new Response(JSON.stringify(HEALTH_PAYLOAD, null, 2), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
       },
     });
   }

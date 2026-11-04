@@ -11,5 +11,7 @@ export const config = {
 };
 
 export default async function handler(request: Request): Promise<Response> {
+  // 完全免鉴权；普通浏览器 GET 返回健康检查 JSON、MCP GET/POST/DELETE 走底层 transport，
+  // 均由 handleMCPRequest 统一处理（见 src/server.ts）。
   return handleMCPRequest(request);
 }
