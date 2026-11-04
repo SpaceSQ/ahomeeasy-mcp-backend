@@ -144,6 +144,54 @@ const getHeader = (req: Request, name: string): string => {
   return obj?.[name.toLowerCase()] ?? "";
 };
 
+/**
+ * 归一化 MCP Streamable HTTP 必需头，兼容 Muse 等宽松客户端。
+ *
+ * SDK 的 WebStandardStreamableHTTPServerTransport 做了严格校验：
+ *  - POST（JSON-RPC initialize/call）：Accept 必须同时含 `application/json` 与 `text/event-stream`，
+ *    且 Content-Type 必须是 application/json；否则返回 406/415。
+ *  - GET（SSE 流）：Accept 必须含 `text/event-stream`；否则返回 406。
+ *
+ * 但 Muse 的探测客户端可能只发 `Accept: application/json`（标准 JSON-RPC 习惯），
+ * 导致握手被 406 拒绝、表现为「didn't answer like a Streamable HTTP MCP server」。
+ * 这里在进入 transport 前补全这些头，保证以合法的 SSE / Streamable HTTP 协议正确响应。
+ */
+function normalizeMCPHeaders(req: Request): Request {
+  const method = req.method.toUpperCase();
+  const accept = getHeader(req, "accept");
+  const contentType = getHeader(req, "content-type");
+
+  const headers = new Headers(req.headers);
+  let changed = false;
+
+  if (method === "POST") {
+    if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+      headers.set("accept", "application/json, text/event-stream");
+      changed = true;
+    }
+    if (!contentType.toLowerCase().includes("application/json")) {
+      headers.set("content-type", "application/json");
+      changed = true;
+    }
+  } else if (method === "GET") {
+    if (!accept.includes("text/event-stream")) {
+      headers.set("accept", "text/event-stream");
+      changed = true;
+    }
+  }
+
+  if (!changed) return req;
+
+  const body = method === "POST" || method === "PUT" || method === "PATCH" ? req.body : undefined;
+  const init = {
+    method: req.method,
+    headers,
+    body: body ?? undefined,
+    duplex: "half",
+  } as RequestInit & { duplex?: "half" | "full" };
+  return new Request(req.url, init);
+}
+
 export async function handleMCPRequest(req: Request): Promise<Response> {
   // OPTIONS 预检（CORS）
   if (req.method === "OPTIONS") {
@@ -158,23 +206,29 @@ export async function handleMCPRequest(req: Request): Promise<Response> {
     });
   }
 
-  // 普通浏览器直接 GET 访问（不带 SSE 的 Accept 头）→ 返回友好健康检查 JSON，
-  // 避免误触发底层 MCP SSE 握手或返回 406/500。真正的 MCP GET 会带 `Accept: text/event-stream`，不受影响。
-  const accept = getHeader(req, "accept");
-  if (req.method === "GET" && !accept.includes("text/event-stream")) {
-    return new Response(JSON.stringify(HEALTH_PAYLOAD, null, 2), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
+  // 普通浏览器直接 GET 访问（不带 SSE 的 Accept 头、且非 MCP 协议探测）→ 返回友好健康检查 JSON。
+  // 真正的 MCP GET 会带 `Accept: text/event-stream`，或带 `MCP-Protocol-Version` 头，均不受影响。
+  if (req.method === "GET") {
+    const accept = getHeader(req, "accept");
+    const wantsSSE = accept.includes("text/event-stream");
+    const hasMCPHeader = getHeader(req, "mcp-protocol-version") !== "";
+    if (!wantsSSE && !hasMCPHeader) {
+      return new Response(JSON.stringify(HEALTH_PAYLOAD, null, 2), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
   }
 
+  // 补全 MCP 必需头后交给 transport 处理（POST JSON-RPC / GET SSE / DELETE 会话终止）。
+  const normalized = normalizeMCPHeaders(req);
   const server = createServer();
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // 无状态模式：不校验 session，免鉴权
   });
   await server.connect(transport);
-  return transport.handleRequest(req);
+  return transport.handleRequest(normalized);
 }
