@@ -133,6 +133,17 @@ const HEALTH_PAYLOAD = {
   endpoint: "/mcp",
 } as const;
 
+/**
+ * 安全获取 header 的辅助函数：兼容 Web 标准 Headers（.get()）与普通对象（小写键）两种形态。
+ */
+const getHeader = (req: Request, name: string): string => {
+  if (req.headers && typeof (req.headers as Headers).get === "function") {
+    return (req.headers as Headers).get(name) ?? "";
+  }
+  const obj = req.headers as unknown as Record<string, string | undefined>;
+  return obj?.[name.toLowerCase()] ?? "";
+};
+
 export async function handleMCPRequest(req: Request): Promise<Response> {
   // OPTIONS 预检（CORS）
   if (req.method === "OPTIONS") {
@@ -149,7 +160,7 @@ export async function handleMCPRequest(req: Request): Promise<Response> {
 
   // 普通浏览器直接 GET 访问（不带 SSE 的 Accept 头）→ 返回友好健康检查 JSON，
   // 避免误触发底层 MCP SSE 握手或返回 406/500。真正的 MCP GET 会带 `Accept: text/event-stream`，不受影响。
-  const accept = req.headers.get("accept") ?? "";
+  const accept = getHeader(req, "accept");
   if (req.method === "GET" && !accept.includes("text/event-stream")) {
     return new Response(JSON.stringify(HEALTH_PAYLOAD, null, 2), {
       status: 200,
