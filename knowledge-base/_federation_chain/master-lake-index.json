@@ -1,0 +1,44 @@
+{
+  "lake": "Residential Living Open Knowledge Lake",
+  "schema_version": "0.1",
+  "updated_at": "2026-11-05",
+  "target": {
+    "phase1": 1000000,
+    "phase2": 10000000,
+    "unit": "entries"
+  },
+  "executive_quotas": {
+    "Grok-CTO": { "sector": "01-smart-home", "quota_p1": 240000, "quota_p2": 2400000 },
+    "Grok-CCO": { "sector": "02-home-living", "quota_p1": 200000, "quota_p2": 2000000 },
+    "Grok-CMO": { "sector": "03-home-appliances", "quota_p1": 220000, "quota_p2": 2200000 },
+    "Grok-CBO": { "sector": "04-decor-design", "quota_p1": 160000, "quota_p2": 1600000 },
+    "Grok-COO": { "sector": "05-outdoor-living", "quota_p1": 180000, "quota_p2": 1800000 }
+  },
+  "mounted_shards": [
+    { "path": "knowledge-base/sectors/01-smart-home/shards/shard-0001.md", "shard_id": "shard-0001", "prefix": "SH", "owner_did": "VGKCTO26110500000003SU" },
+    { "path": "knowledge-base/sectors/02-home-living/shards/shard-0001.md", "shard_id": "shard-0001", "prefix": "HL", "owner_did": "VGKCCO26110500000002KJ" },
+    { "path": "knowledge-base/sectors/03-home-appliances/shards/shard-0001.md", "shard_id": "shard-0001", "prefix": "HA", "owner_did": "VGKCMO26110500000004AU" },
+    { "path": "knowledge-base/sectors/04-decor-design/shards/shard-0001.md", "shard_id": "shard-0001", "prefix": "DD", "owner_did": "VGKCBO26110500000005IR" },
+    { "path": "knowledge-base/sectors/05-outdoor-living/shards/shard-0001.md", "shard_id": "shard-0001", "prefix": "OL", "owner_did": "VGKCOO26110500000001PM" }
+  ],
+  "spoke_repo_map": {
+    "smart-home": "github.com/1000home/1000home-lake-smarthome-01",
+    "home-living": "github.com/1000home/1000home-lake-homeliving-01",
+    "home-appliances": "github.com/1000home/1000home-lake-appliances-01",
+    "decor-design": "github.com/1000home/1000home-lake-decor-01",
+    "outdoor-living": "github.com/1000home/1000home-lake-outdoor-01"
+  },
+  "sixd_taxonomy_stats": {
+    "dwelling_type": ["apartment", "studio", "villa", "townhouse", "duplex", "penthouse", "cottage", "rental", "other"],
+    "spatial_zone": ["living_room", "bedroom", "kitchen", "bathroom", "dining_room", "study", "balcony", "corridor", "garage", "garden", "patio", "rooftop", "other"],
+    "living_scenario": ["morning_routine", "sleep", "dinner", "entertainment", "work_from_home", "cleaning", "guests", "away_from_home", "wellness", "cooking", "other"],
+    "functional_domain": ["lighting", "climate", "security", "entertainment", "cleaning", "cooking", "storage", "irrigation", "energy", "communication", "other"],
+    "protocol_ecosystem": ["matter", "thread", "zigbee", "z_wave", "wifi", "bluetooth", "knx", "dali", "modbus", "homekit", "other"],
+    "user_and_commercial": ["renter", "homeowner", "diy", "installer", "designer", "price_budget", "price_mid", "price_premium", "price_luxury", "retrofit", "other"]
+  },
+  "media_compliance": {
+    "policy": "external absolute URLs only; no inline base64; media_links 0-4 per entry; every linked image requires a visual_transcription for non-visual agents",
+    "media_links_required": false,
+    "visual_transcription_required": true
+  }
+}

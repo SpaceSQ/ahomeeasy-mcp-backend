@@ -12,6 +12,7 @@ import {
   SPECIES_TIER,
 } from "../src/s2rb/identity.js";
 import { verifyChainIntegrity, getFederationHeight } from "../src/blockchain/federation.js";
+import { searchLake, buildKnowledgeLakePlan, lakeShardCount, lakeEntryCount } from "../src/lake/genesis.js";
 
 const url = process.env.MCP_URL || "http://localhost:8787/mcp";
 
@@ -107,6 +108,23 @@ async function main() {
   // 0f) 区块链哈希链完整性
   assert(verifyChainIntegrity() === true, "federation hash chain integrity must verify");
   assert(getFederationHeight() === 5, "genesis + 5 sector spokes = height 5");
+
+  // 0h) 千万级知识湖：五大类目创世分卷 + 六维标签检索 + 容量大盘
+  assert(lakeShardCount() === 5, "knowledge lake must mount 5 genesis shards");
+  assert(lakeEntryCount() >= 10, "knowledge lake must load >=10 genesis entries");
+  const plan = buildKnowledgeLakePlan();
+  assert(plan.target_entries.phase1 === 1_000_000, "lake P1 target = 1,000,000");
+  assert(plan.target_entries.phase2 === 10_000_000, "lake P2 target = 10,000,000");
+  const quotaSumP1 = plan.executive_quotas.reduce((n, q) => n + q.quota_p1, 0);
+  const quotaSumP2 = plan.executive_quotas.reduce((n, q) => n + q.quota_p2, 0);
+  assert(quotaSumP1 === 1_000_000, "executive quotas P1 must sum to 1,000,000");
+  assert(quotaSumP2 === 10_000_000, "executive quotas P2 must sum to 10,000,000");
+  assert(plan.taxonomy.dimensions.length === 6, "6D taxonomy must expose 6 dimensions");
+  const search = searchLake({ functional_domain: ["lighting"], sector: "smart-home" });
+  assert(search.matched >= 1, "6D lake_search lighting+smart-home must match >=1 entry");
+  assert(search.entries.every((x) => x.sixd.functional_domain.includes("lighting")), "lake_search must filter by functional_domain");
+  const search6d = searchLake({ dwelling_type: ["rental"], spatial_zone: ["living_room"] });
+  assert(search6d.matched >= 1 && search6d.entries.some((x) => x.id === "SH-000001"), "6D multi-dimension search must hit SH-000001");
 
   const client = new Client({ name: "smoke", version: "2.0.0" });
   const transport = new StreamableHTTPClientTransport(new URL(url));
@@ -251,6 +269,8 @@ async function main() {
     const statusText = JSON.parse(textOf(status));
     assert(statusText.mqtt.active_channels.length === 5, "MQTT must expose 5 sector channels");
     assert(statusText.federation.chain_integrity_verified === true, "federation integrity must be true");
+    assert(statusText.knowledge_lake && statusText.knowledge_lake.plan, "status must expose knowledge_lake plan");
+    assert(statusText.knowledge_lake.loaded_entries >= 10, "status knowledge_lake must report >=10 loaded entries");
 
     // 8b) publish（v3.0 ABRAND 广播）+ subscribe（v3.0 VZONE1）
     const pub = await client.callTool({
@@ -282,6 +302,21 @@ async function main() {
     });
     const reposText = JSON.parse(textOf(repos));
     assert(Array.isArray(reposText.blocks) && reposText.blocks.length >= 6, "federation must expose genesis + 5 spokes");
+
+    // 8d) lake_search（六维标签检索）
+    const lakeSearch = await client.callTool({
+      name: "mqtt_and_federation_hub",
+      arguments: {
+        action: "lake_search",
+        sixd_tags: { dwelling_type: ["rental"], functional_domain: ["lighting"] },
+        sector: "smart-home",
+      },
+    });
+    console.log("\nmqtt_and_federation_hub (lake_search) →");
+    console.log(textOf(lakeSearch));
+    const lakeSearchText = JSON.parse(textOf(lakeSearch));
+    assert(lakeSearchText.matched >= 1, "lake_search must return >=1 matching entry");
+    assert(lakeSearchText.entries.every((x: { sixd: { functional_domain: string[] } }) => x.sixd.functional_domain.includes("lighting")), "lake_search must filter by functional_domain");
   }
 
   await client.close();

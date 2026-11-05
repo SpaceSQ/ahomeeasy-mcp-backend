@@ -29,6 +29,11 @@ import {
   getFederationHeight,
   MOTHER_REPO,
 } from "../src/blockchain/federation.js";
+import {
+  searchLake,
+  buildKnowledgeLakePlan,
+  type LakeSearchQuery,
+} from "../src/lake/genesis.js";
 
 /**
  * S2彩虹桥 2.0 网关（Vercel Serverless, Node.js runtime）。
@@ -86,6 +91,7 @@ function buildDashboard() {
       b2c: "Agent → Consumer 选购/安装/氛围服务（smart-drop 4 工具）",
       a2a: "Agent → Agent 联邦知识库读写（S2-DID 分级门控）",
     },
+    knowledge_lake_plan: buildKnowledgeLakePlan(),
   };
 }
 
@@ -176,6 +182,20 @@ async function handlePost(req: Request): Promise<Response> {
 
       case "repos":
         return jsonResponse({ blocks: queryFederatedRepos(input.sector as Sector | undefined) });
+
+      case "lake_search": {
+        const tags = (input.sixd_tags as Partial<LakeSearchQuery> | undefined) ?? {};
+        const query: LakeSearchQuery = {
+          dwelling_type: tags.dwelling_type,
+          spatial_zone: tags.spatial_zone,
+          living_scenario: tags.living_scenario,
+          functional_domain: tags.functional_domain,
+          protocol_ecosystem: tags.protocol_ecosystem,
+          user_and_commercial: tags.user_and_commercial,
+          sector: input.sector as Sector | undefined,
+        };
+        return jsonResponse(searchLake(query));
+      }
 
       case "anchor": {
         if (!did) return jsonResponse({ error: "anchor requires s2_did" }, 400);

@@ -53,6 +53,13 @@ import {
   getFederationHeight,
   MOTHER_REPO,
 } from "./blockchain/federation.js";
+import {
+  searchLake,
+  buildKnowledgeLakePlan,
+  lakeShardCount,
+  lakeEntryCount,
+  type LakeSearchQuery,
+} from "./lake/genesis.js";
 
 const SERVER_INFO = { name: "ahomeeasy-mcp-backend", version: "2.0.0" } as const;
 
@@ -205,20 +212,20 @@ const S2RB_TOOL_DEFINITIONS = [
     name: "mqtt_and_federation_hub",
     title: "MQTT + Blockchain Federation Hub",
     description:
-      "Query and operate the MQTT pub/sub router and the SHA-256 + Merkle blockchain federation. Subcommands: status, publish, subscribe, repos, anchor.",
+      "Query and operate the MQTT pub/sub router, the SHA-256 + Merkle blockchain federation, and the 1M-10M knowledge lake (6D tag search). Subcommands: status, publish, subscribe, repos, anchor, lake_search.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["status", "publish", "subscribe", "repos", "anchor"],
+          enum: ["status", "publish", "subscribe", "repos", "anchor", "lake_search"],
           description: "Hub subcommand.",
         },
         s2_did: { type: "string", description: "Valid S2-DID (required for publish/subscribe/anchor)." },
         topic: { type: "string", description: "MQTT topic for publish, e.g. 1000home/v2/smart-home/broadcast." },
         payload: { type: "object", description: "Payload object for publish." },
         qos: { type: "number", enum: [0, 1, 2], description: "MQTT QoS level for publish." },
-        sector: { type: "string", enum: SECTORS, description: "Sector filter for repos/anchor." },
+        sector: { type: "string", enum: SECTORS, description: "Sector filter for repos/anchor/lake_search." },
         spoke_repo_url: { type: "string", description: "External GitHub repo URL for anchor." },
         content_leaves: {
           type: "array",
@@ -230,6 +237,19 @@ const S2RB_TOOL_DEFINITIONS = [
           description: "MQTT topic filter for subscribe, e.g. 1000home/v2/smart-home/#.",
         },
         limit: { type: "number", description: "Max retained messages to return for subscribe." },
+        sixd_tags: {
+          type: "object",
+          description:
+            "6D tag filter for lake_search: dwelling_type / spatial_zone / living_scenario / functional_domain / protocol_ecosystem / user_and_commercial (each an array of values).",
+          properties: {
+            dwelling_type: { type: "array", items: { type: "string" } },
+            spatial_zone: { type: "array", items: { type: "string" } },
+            living_scenario: { type: "array", items: { type: "string" } },
+            functional_domain: { type: "array", items: { type: "string" } },
+            protocol_ecosystem: { type: "array", items: { type: "string" } },
+            user_and_commercial: { type: "array", items: { type: "string" } },
+          },
+        },
       },
       required: ["action"],
     },
@@ -394,7 +414,25 @@ function runMqttFederationHub(
           height: getFederationHeight(),
           chain_integrity_verified: verifyChainIntegrity(),
         },
+        knowledge_lake: {
+          plan: buildKnowledgeLakePlan(),
+          mounted_shards: lakeShardCount(),
+          loaded_entries: lakeEntryCount(),
+        },
       });
+    }
+    case "lake_search": {
+      const tags = (args.sixd_tags as Partial<LakeSearchQuery> | undefined) ?? {};
+      const query: LakeSearchQuery = {
+        dwelling_type: tags.dwelling_type,
+        spatial_zone: tags.spatial_zone,
+        living_scenario: tags.living_scenario,
+        functional_domain: tags.functional_domain,
+        protocol_ecosystem: tags.protocol_ecosystem,
+        user_and_commercial: tags.user_and_commercial,
+        sector: args.sector as Sector | undefined,
+      };
+      return ok(searchLake(query));
     }
     case "publish": {
       if (!did) return err("publish requires s2_did");
