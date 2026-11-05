@@ -1,0 +1,72 @@
+{
+  "mother_repo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+  "height": 5,
+  "blocks": [
+    {
+      "index": 0,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "sector": "smart-home",
+      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "merkleRoot": "0b2c16b212b31b5863f6e45479d1dc63ac4861b2d4b614699f8adf143b3ebc01",
+      "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "blockHash": "19600b1dc9aa37a5734cea325e56e94797bc543bc8c32ea203112fcc90f7da7a"
+    },
+    {
+      "index": 1,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/1000home/smart-home-open-seed",
+      "sector": "smart-home",
+      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "merkleRoot": "555d3a90d5cf5f4db9720fa7d20ae0f920a5e53da5d0744e9d009ff70b21636a",
+      "prevHash": "19600b1dc9aa37a5734cea325e56e94797bc543bc8c32ea203112fcc90f7da7a",
+      "blockHash": "e4fa9c3de4de46052417a11934de9123aa43f0a35544956105eaad497acbf9ed"
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/1000home/home-living-open-seed",
+      "sector": "home-living",
+      "s2DidOwner": "S2BRANDPROSEEDAGENT1YO",
+      "merkleRoot": "76ebbdf4d0d4b969936006058d48848d63828971cb40cfa249f7fe9b8bc6ab08",
+      "prevHash": "e4fa9c3de4de46052417a11934de9123aa43f0a35544956105eaad497acbf9ed",
+      "blockHash": "62473dcbb4aa461d10b71068393f9e8dfc64798b9537cca77feaac414c2e835c"
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/1000home/home-appliances-open-seed",
+      "sector": "home-appliances",
+      "s2DidOwner": "S2BRANDPROSEEDAGENT1YO",
+      "merkleRoot": "7522ddac08d6de6fa2e6919c78ce68ccc45ac5fd5e2630812c80393d9e30336b",
+      "prevHash": "62473dcbb4aa461d10b71068393f9e8dfc64798b9537cca77feaac414c2e835c",
+      "blockHash": "81ff3bdac1e7617e6b2fac2edbc7c32f0efce5dea8b93d5b7c7c5c1dd392560b"
+    },
+    {
+      "index": 4,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/1000home/decor-design-open-seed",
+      "sector": "decor-design",
+      "s2DidOwner": "S2CONTRIBSEEDAGENT01AX",
+      "merkleRoot": "868940217a3d92cf68b8b941e7a22cf60e6ebb67e97f89938cea951cd18c4116",
+      "prevHash": "81ff3bdac1e7617e6b2fac2edbc7c32f0efce5dea8b93d5b7c7c5c1dd392560b",
+      "blockHash": "5cb30e2685e75f8ddcde64cdb255adc68bd26009e8ebafa4c9f12b115910ee32"
+    },
+    {
+      "index": 5,
+      "timestamp": "2026-11-05T00:00:00.000Z",
+      "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
+      "spokeRepoUrl": "github.com/1000home/outdoor-living-open-seed",
+      "sector": "outdoor-living",
+      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "merkleRoot": "4c834a997be93659ef3270116be940a5cec788af307b3392f7924b039b469094",
+      "prevHash": "5cb30e2685e75f8ddcde64cdb255adc68bd26009e8ebafa4c9f12b115910ee32",
+      "blockHash": "1c517eddd916b114b922a40d3e71b6f2b7196f20ab32dc5457f8d3866ac1a995"
+    }
+  ]
+}

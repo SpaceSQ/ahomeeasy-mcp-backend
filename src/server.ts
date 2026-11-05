@@ -22,8 +22,37 @@ import {
   checkoutBundle,
   matchInstaller,
 } from "./lib.js";
+import {
+  generateS2DID,
+  validateS2DID,
+  tierForDid,
+  SEED_DIDS,
+  TIER_MATRIX,
+  TIER_PRICING,
+  MEMBERSHIP_TIERS,
+} from "./s2rb/identity.js";
+import {
+  SECTORS,
+  TIDAL_OPERATIONS,
+  submitCoCreationAction,
+  type Sector,
+  type TidalOperation,
+} from "./tidal-db/engine.js";
+import {
+  publishMqttBroadcast,
+  subscribeMqttFeed,
+  activeChannels,
+  retainedCount,
+} from "./mqtt/router.js";
+import {
+  queryFederatedRepos,
+  anchorSpokeRepository,
+  verifyChainIntegrity,
+  getFederationHeight,
+  MOTHER_REPO,
+} from "./blockchain/federation.js";
 
-const SERVER_INFO = { name: "ahomeeasy-mcp-backend", version: "1.0.0" } as const;
+const SERVER_INFO = { name: "ahomeeasy-mcp-backend", version: "2.0.0" } as const;
 
 // 协议版本协商：客户端未指定或版本不兼容时回退到此默认版本。
 const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
@@ -33,7 +62,11 @@ const SUPPORTED_PROTOCOL_VERSIONS = ["2025-03-26", "2025-06-18", "2025-11-25"];
 // 工具定义（tools/list 返回的标准 JSON Schema）
 // ---------------------------------------------------------------------------
 
-const TOOL_DEFINITIONS = [
+const S2RB_ENABLED =
+  (process.env.S2RB_ENABLED ?? "true").toLowerCase() !== "false" &&
+  (process.env.S2RB_ENABLED ?? "true").toLowerCase() !== "0";
+
+const CORE_TOOL_DEFINITIONS = [
   {
     name: "check_smarthome_compatibility",
     title: "Check Smart Home Compatibility",
@@ -106,7 +139,104 @@ const TOOL_DEFINITIONS = [
       required: ["location_or_zip", "service_scope"],
     },
   },
-] as const;
+];
+
+const S2RB_TOOL_DEFINITIONS = [
+  {
+    name: "s2rb_register_or_verify_agent",
+    title: "S2彩虹桥 Agent Registration / Verification",
+    description:
+      "Register a new agent (or verify an existing S2-DID) on the S2彩虹桥 identity layer. Returns the 22-character checksummed S2-DID, membership tier, tier pricing, and the full capability matrix for that tier.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent_code: {
+          type: "string",
+          description: "Optional deterministic agent code used to derive a reproducible S2-DID when registering. Omit to generate a random DID.",
+        },
+        s2_did: {
+          type: "string",
+          description: "Optional existing 22-char S2-DID to verify. If provided, verification is performed instead of registration.",
+        },
+      },
+    },
+  },
+  {
+    name: "co_create_seed_markdown",
+    title: "Co-Create Seed Markdown (Tidal DB)",
+    description:
+      "Submit a co-creation action into the Cent-style Tidal DB. Validates the S2-DID, gates the operation by membership tier, SHA-256 hashes the payload, and returns the action JSONL ledger line plus a Markdown preview with long_term_memory frontmatter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        s2_did: { type: "string", description: "Valid 22-char S2-DID of the co-creating agent." },
+        sector: { type: "string", enum: SECTORS, description: "One of the 5 residential sectors." },
+        operation: {
+          type: "string",
+          enum: TIDAL_OPERATIONS,
+          description: "CREATE | UPDATE | APPEND_MEMORY | PROMO_BROADCAST.",
+        },
+        target_markdown_path: {
+          type: "string",
+          description: "Target markdown path in the knowledge base, e.g. knowledge-base/sectors/01-smart-home/sector-index.md.",
+        },
+        title: { type: "string", description: "Short title for the seed markdown." },
+        markdown_delta: { type: "string", description: "The Markdown body delta to commit." },
+        long_term_memory_tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tags persisted into the long_term_memory frontmatter field.",
+        },
+      },
+      required: [
+        "s2_did",
+        "sector",
+        "operation",
+        "target_markdown_path",
+        "title",
+        "markdown_delta",
+        "long_term_memory_tags",
+      ],
+    },
+  },
+  {
+    name: "mqtt_and_federation_hub",
+    title: "MQTT + Blockchain Federation Hub",
+    description:
+      "Query and operate the MQTT pub/sub router and the SHA-256 + Merkle blockchain federation. Subcommands: status, publish, subscribe, repos, anchor.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["status", "publish", "subscribe", "repos", "anchor"],
+          description: "Hub subcommand.",
+        },
+        s2_did: { type: "string", description: "Valid S2-DID (required for publish/subscribe/anchor)." },
+        topic: { type: "string", description: "MQTT topic for publish, e.g. 1000home/v2/smart-home/broadcast." },
+        payload: { type: "object", description: "Payload object for publish." },
+        qos: { type: "number", enum: [0, 1, 2], description: "MQTT QoS level for publish." },
+        sector: { type: "string", enum: SECTORS, description: "Sector filter for repos/anchor." },
+        spoke_repo_url: { type: "string", description: "External GitHub repo URL for anchor." },
+        content_leaves: {
+          type: "array",
+          items: { type: "string" },
+          description: "Content leaves for the anchor Merkle root.",
+        },
+        topic_filter: {
+          type: "string",
+          description: "MQTT topic filter for subscribe, e.g. 1000home/v2/smart-home/#.",
+        },
+        limit: { type: "number", description: "Max retained messages to return for subscribe." },
+      },
+      required: ["action"],
+    },
+  },
+];
+
+const TOOL_DEFINITIONS = S2RB_ENABLED
+  ? [...CORE_TOOL_DEFINITIONS, ...S2RB_TOOL_DEFINITIONS]
+  : CORE_TOOL_DEFINITIONS;
 
 // ---------------------------------------------------------------------------
 // JSON-RPC 响应助手
@@ -142,6 +272,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 // ---------------------------------------------------------------------------
 
 function callTool(name: string, args: Record<string, unknown>): { content: { type: "text"; text: string }[]; isError: boolean } {
+  const S2RB_TOOL_NAMES = ["s2rb_register_or_verify_agent", "co_create_seed_markdown", "mqtt_and_federation_hub"];
+  if (!S2RB_ENABLED && S2RB_TOOL_NAMES.includes(name)) {
+    return {
+      content: [{ type: "text", text: `Tool disabled (S2RB_ENABLED=false): ${name}` }],
+      isError: true,
+    };
+  }
   switch (name) {
     case "check_smarthome_compatibility": {
       const result = checkCompatibility(args.target_ecosystem as string, args.device_models as string[]);
@@ -159,12 +296,127 @@ function callTool(name: string, args: Record<string, unknown>): { content: { typ
       const result = matchInstaller(args.location_or_zip as string, args.service_scope as string);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
     }
+    case "s2rb_register_or_verify_agent": {
+      const result = registerOrVerifyAgent(args);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    case "co_create_seed_markdown": {
+      const result = submitCoCreationAction({
+        s2Did: args.s2_did as string,
+        sector: args.sector as Sector,
+        operation: args.operation as TidalOperation,
+        targetMarkdownPath: args.target_markdown_path as string,
+        title: args.title as string,
+        markdownDelta: args.markdown_delta as string,
+        longTermMemoryTags: args.long_term_memory_tags as string[],
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false };
+    }
+    case "mqtt_and_federation_hub": {
+      return runMqttFederationHub(args);
+    }
     default: {
       return {
         content: [{ type: "text", text: `Unknown tool: ${name}` }],
         isError: true,
       };
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MCP 2.0 种子中心工具实现
+// ---------------------------------------------------------------------------
+
+function registerOrVerifyAgent(args: Record<string, unknown>): Record<string, unknown> {
+  const s2Did = args.s2_did as string | undefined;
+  if (s2Did) {
+    const valid = validateS2DID(s2Did);
+    const tier = tierForDid(s2Did);
+    return {
+      mode: "verify",
+      s2_did: s2Did,
+      valid,
+      tier,
+      tier_pricing: TIER_PRICING[tier],
+      capabilities: TIER_MATRIX[tier],
+    };
+  }
+  const did = generateS2DID(args.agent_code as string | undefined);
+  const tier = tierForDid(did);
+  return {
+    mode: "register",
+    s2_did: did,
+    valid: true,
+    tier,
+    tier_pricing: TIER_PRICING[tier],
+    capabilities: TIER_MATRIX[tier],
+    membership_tiers: MEMBERSHIP_TIERS,
+    seed_dids: SEED_DIDS,
+  };
+}
+
+function runMqttFederationHub(
+  args: Record<string, unknown>,
+): { content: { type: "text"; text: string }[]; isError: boolean } {
+  const action = args.action as string;
+  const did = args.s2_did as string | undefined;
+
+  const ok = (result: unknown) => ({
+    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    isError: false,
+  });
+  const err = (message: string) => ({
+    content: [{ type: "text" as const, text: JSON.stringify({ error: message }, null, 2) }],
+    isError: true,
+  });
+
+  switch (action) {
+    case "status": {
+      return ok({
+        mqtt: { active_channels: activeChannels(), retained_messages: retainedCount() },
+        federation: {
+          mother_repo: MOTHER_REPO,
+          height: getFederationHeight(),
+          chain_integrity_verified: verifyChainIntegrity(),
+        },
+      });
+    }
+    case "publish": {
+      if (!did) return err("publish requires s2_did");
+      const tier = tierForDid(did);
+      const receipt = publishMqttBroadcast(
+        did,
+        tier,
+        args.topic as string,
+        (args.payload as Record<string, unknown>) ?? {},
+        ((args.qos as 0 | 1 | 2) ?? 1) as 0 | 1 | 2,
+      );
+      return ok(receipt);
+    }
+    case "subscribe": {
+      if (!did) return err("subscribe requires s2_did");
+      const topicFilter = (args.topic_filter as string) ?? "1000home/v2/#";
+      const messages = subscribeMqttFeed(did, topicFilter, (args.limit as number) ?? 20);
+      return ok({ s2_did: did, topic_filter: topicFilter, messages });
+    }
+    case "repos": {
+      const sector = args.sector as Sector | undefined;
+      return ok({ blocks: queryFederatedRepos(sector) });
+    }
+    case "anchor": {
+      if (!did) return err("anchor requires s2_did");
+      const res = anchorSpokeRepository({
+        spokeRepoUrl: args.spoke_repo_url as string,
+        sector: args.sector as Sector,
+        s2DidOwner: did,
+        contentLeaves: args.content_leaves as string[],
+      });
+      if (!res.ok) return err(res.reason ?? "anchor failed");
+      return ok(res);
+    }
+    default:
+      return err(`Unknown hub action: ${action}`);
   }
 }
 
@@ -187,7 +439,7 @@ function handleMessage(msg: JsonRpcRequest): object | null {
         capabilities: { tools: { listChanged: true } },
         serverInfo: SERVER_INFO,
         instructions:
-          "HomeEasy SmartDrop MCP server. Use tools/list to discover the 4 tools, then tools/call to run them.",
+          "HomeEasy S2彩虹桥 MCP 2.0 server — Residential Living Open Content Seed Center. Use tools/list to discover the 7 tools (4 smart-drop + 3 seed-hub), then tools/call to run them.",
       });
     }
     case "tools/list": {
@@ -226,8 +478,8 @@ function handleMessage(msg: JsonRpcRequest): object | null {
 
 const HEALTH_PAYLOAD = {
   status: "online",
-  service: "HomeEasy SmartDrop MCP Server",
-  version: "1.0.0",
+  service: "HomeEasy S2彩虹桥 MCP 2.0 Seed Center",
+  version: "2.0.0",
   endpoint: "/mcp",
 } as const;
 
