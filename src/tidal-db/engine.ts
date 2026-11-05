@@ -5,7 +5,12 @@
  * 沉淀为带 long_term_memory 字段的 Markdown 模型文件，并写入增量 Action JSONL 账本。
  */
 import { createHash } from "node:crypto";
-import { validateS2DID, tierForDid, TIER_MATRIX, type MembershipTier } from "../s2rb/identity.js";
+import {
+  verifyAndMigrateS2DID,
+  tierForDid,
+  TIER_MATRIX,
+  type MembershipTier,
+} from "../s2rb/identity.js";
 
 export type Sector =
   | "smart-home"
@@ -59,6 +64,9 @@ export interface CoCreationResult {
   jsonl: string;
   markdownPreview: string;
   tier: MembershipTier;
+  canonicalDid: string;
+  migratedFromV3: boolean;
+  version: string;
 }
 
 /** 在内存状态池中保存的共创 Action（可序列化为 .jsonl 账本）。 */
@@ -88,10 +96,12 @@ function payloadHash(input: Omit<TidalAction, "actionId" | "contentHash">): stri
 }
 
 export function submitCoCreationAction(input: CoCreationInput): CoCreationResult {
-  if (!validateS2DID(input.s2Did)) {
+  const verification = verifyAndMigrateS2DID(input.s2Did);
+  if (!verification.valid) {
     throw new Error(`Invalid S2-DID: ${input.s2Did}`);
   }
-  const tier = tierForDid(input.s2Did);
+  const canonicalDid = verification.canonicalDid;
+  const tier = tierForDid(canonicalDid);
   if (!OPERATION_PERMISSION[tier].includes(input.operation)) {
     throw new Error(
       `Tier ${tier} (${TIER_MATRIX[tier].canRealtimeAction ? "realtime" : "daily"}) may not run operation ${input.operation}.`
@@ -101,7 +111,7 @@ export function submitCoCreationAction(input: CoCreationInput): CoCreationResult
   const timestamp = new Date().toISOString();
   const hash = payloadHash({
     timestamp,
-    s2Did: input.s2Did,
+    s2Did: canonicalDid,
     sector: input.sector,
     operation: input.operation,
     targetMarkdownPath: input.targetMarkdownPath,
@@ -112,7 +122,7 @@ export function submitCoCreationAction(input: CoCreationInput): CoCreationResult
   const action: TidalAction = {
     actionId: `act_${hash.slice(0, 16)}`,
     timestamp,
-    s2Did: input.s2Did,
+    s2Did: canonicalDid,
     sector: input.sector,
     operation: input.operation,
     targetMarkdownPath: input.targetMarkdownPath,
@@ -127,6 +137,9 @@ export function submitCoCreationAction(input: CoCreationInput): CoCreationResult
     jsonl: serializeActionJsonl(action),
     markdownPreview: serializeActionMarkdown(action),
     tier,
+    canonicalDid,
+    migratedFromV3: verification.migratedFromV3,
+    version: verification.version,
   };
 }
 

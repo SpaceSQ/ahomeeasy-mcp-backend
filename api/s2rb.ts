@@ -1,7 +1,9 @@
 import {
   generateS2DID,
-  validateS2DID,
+  verifyAndMigrateS2DID,
   tierForDid,
+  SEED_DIDS,
+  SEED_DIDS_V3,
   TIER_MATRIX,
   TIER_PRICING,
   MEMBERSHIP_TIERS,
@@ -102,19 +104,41 @@ async function handlePost(req: Request): Promise<Response> {
       case "status":
         return jsonResponse(buildDashboard());
 
-      case "register":
+      case "register": {
+        const did = generateS2DID(input.agent_code as string | undefined);
         return jsonResponse({
           mode: "register",
-          s2_did: generateS2DID(input.agent_code as string | undefined),
+          s2_did: did,
+          valid: true,
+          version: "v4.0",
+          canonicalDid: did,
+          migratedFromV3: false,
+          speciesClass: did[0],
           tier: "OBSERVER",
           membership_tiers: MEMBERSHIP_TIERS,
+          seed_dids: SEED_DIDS,
+          seed_dids_v3: SEED_DIDS_V3,
         });
+      }
 
       case "verify": {
         if (!did) return jsonResponse({ error: "verify requires s2_did" }, 400);
-        const valid = validateS2DID(did);
-        const tier = tierForDid(did);
-        return jsonResponse({ mode: "verify", s2_did: did, valid, tier, tier_pricing: TIER_PRICING[tier], capabilities: TIER_MATRIX[tier] });
+        const v = verifyAndMigrateS2DID(did);
+        const tier = tierForDid(v.canonicalDid);
+        return jsonResponse({
+          mode: "verify",
+          s2_did: did,
+          valid: v.valid,
+          version: v.version,
+          canonicalDid: v.canonicalDid,
+          migratedFromV3: v.migratedFromV3,
+          speciesClass: v.speciesClass,
+          ...(v.legacyDid ? { legacyDid: v.legacyDid } : {}),
+          ...(v.migrationNotice ? { migrationNotice: v.migrationNotice } : {}),
+          tier,
+          tier_pricing: TIER_PRICING[tier],
+          capabilities: TIER_MATRIX[tier],
+        });
       }
 
       case "co_create":
@@ -132,16 +156,20 @@ async function handlePost(req: Request): Promise<Response> {
 
       case "publish": {
         if (!did) return jsonResponse({ error: "publish requires s2_did" }, 400);
-        const tier = tierForDid(did);
+        const v = verifyAndMigrateS2DID(did);
+        const canonicalDid = v.canonicalDid;
+        const tier = tierForDid(canonicalDid);
         const receipt = publishMqttBroadcast(did, tier, input.topic as string, input.payload ?? {}, ((input.qos as 0 | 1 | 2) ?? 1) as 0 | 1 | 2);
-        return jsonResponse(receipt);
+        return jsonResponse({ ...receipt, canonicalDid, migratedFromV3: v.migratedFromV3, version: v.version });
       }
 
       case "subscribe": {
         if (!did) return jsonResponse({ error: "subscribe requires s2_did" }, 400);
+        const v = verifyAndMigrateS2DID(did);
+        const canonicalDid = v.canonicalDid;
         const topicFilter = (input.topic_filter as string) ?? "1000home/v2/#";
         const messages = subscribeMqttFeed(did, topicFilter, (input.limit as number) ?? 20);
-        return jsonResponse({ s2_did: did, topic_filter: topicFilter, messages });
+        return jsonResponse({ s2_did: did, canonicalDid, migratedFromV3: v.migratedFromV3, version: v.version, topic_filter: topicFilter, messages });
       }
 
       case "repos":

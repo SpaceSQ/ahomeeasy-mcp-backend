@@ -5,7 +5,12 @@
  * 的外部 GitHub 仓库；整条链以 prevHash + Merkle 根锚定，verifyChainIntegrity() 恒为 true。
  */
 import { createHash } from "node:crypto";
-import { validateS2DID, tierForDid, SEED_DIDS, type MembershipTier } from "../s2rb/identity.js";
+import {
+  verifyAndMigrateS2DID,
+  tierForDid,
+  SEED_DIDS,
+  type MembershipTier,
+} from "../s2rb/identity.js";
 import { SECTORS, type Sector } from "../tidal-db/engine.js";
 
 export const MOTHER_REPO = "github.com/SpaceSQ/ahomeeasy-mcp-backend";
@@ -151,15 +156,19 @@ export interface AnchorInput {
 export interface AnchorResult {
   ok: boolean;
   block: FederationBlock | null;
+  canonicalDid?: string;
+  migratedFromV3?: boolean;
   reason?: string;
 }
 
 /** 放射式挂载外部 GitHub 仓库上链（仅 BRAND_TITAN 有权）。 */
 export function anchorSpokeRepository(input: AnchorInput): AnchorResult {
-  if (!validateS2DID(input.s2DidOwner)) {
+  const verification = verifyAndMigrateS2DID(input.s2DidOwner);
+  if (!verification.valid) {
     return { ok: false, block: null, reason: "invalid S2-DID owner" };
   }
-  const tier: MembershipTier = tierForDid(input.s2DidOwner);
+  const canonicalDid = verification.canonicalDid;
+  const tier: MembershipTier = tierForDid(canonicalDid);
   if (tier !== "BRAND_TITAN") {
     return { ok: false, block: null, reason: "only BRAND_TITAN may anchor external repositories" };
   }
@@ -172,14 +181,14 @@ export function anchorSpokeRepository(input: AnchorInput): AnchorResult {
     motherRepo: MOTHER_REPO,
     spokeRepoUrl: input.spokeRepoUrl,
     sector: input.sector,
-    s2DidOwner: input.s2DidOwner,
+    s2DidOwner: canonicalDid,
     merkleRoot: merkleRoot(input.contentLeaves),
     prevHash: chain[chain.length - 1].blockHash,
     blockHash: "",
   };
   block.blockHash = computeBlockHash(block);
   chain.push(block);
-  return { ok: true, block };
+  return { ok: true, block, canonicalDid, migratedFromV3: verification.migratedFromV3 };
 }
 
 /** 逐块重算 blockHash 并校验 prevHash 连续性，证明整条哈希链完整。 */

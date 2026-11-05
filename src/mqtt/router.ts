@@ -9,7 +9,11 @@
  *   1000home/v2/outdoor-living/#
  */
 import { createHash } from "node:crypto";
-import { validateS2DID, tierForDid, type MembershipTier } from "../s2rb/identity.js";
+import {
+  verifyAndMigrateS2DID,
+  tierForDid,
+  type MembershipTier,
+} from "../s2rb/identity.js";
 import { SECTORS, type Sector } from "../tidal-db/engine.js";
 
 export interface RetainedMessage {
@@ -25,6 +29,9 @@ export interface RetainedMessage {
 export interface BroadcastReceipt {
   accepted: boolean;
   s2Did: string;
+  canonicalDid: string;
+  migratedFromV3: boolean;
+  version: string;
   tier: MembershipTier;
   topic: string;
   qos: 0 | 1 | 2;
@@ -77,18 +84,20 @@ export function publishMqttBroadcast(
   payload: unknown,
   qos: 0 | 1 | 2 = 1,
 ): BroadcastReceipt {
-  if (!validateS2DID(s2Did)) {
-    return receipt(false, s2Did, tierForDid(s2Did), topic, qos, "", "invalid S2-DID");
+  const verification = verifyAndMigrateS2DID(s2Did);
+  if (!verification.valid) {
+    return receipt(false, s2Did, tierForDid(s2Did), topic, qos, "", "invalid S2-DID", false, "invalid");
   }
+  const canonicalDid = verification.canonicalDid;
   if (tier !== "BRAND_PRO" && tier !== "BRAND_TITAN") {
-    return receipt(false, s2Did, tier, topic, qos, "", "tier not allowed to publish broadcast");
+    return receipt(false, s2Did, tier, topic, qos, "", "tier not allowed to publish broadcast", verification.migratedFromV3, verification.version, canonicalDid);
   }
   const payloadHash = sha256Hex(JSON.stringify(payload));
   const message: RetainedMessage = {
     topic,
     payload,
     qos,
-    s2Did,
+    s2Did: canonicalDid,
     tier,
     payloadHash,
     timestamp: new Date().toISOString(),
@@ -101,17 +110,18 @@ export function publishMqttBroadcast(
     if ([...filters].some((f) => topicMatches(f, topic))) matchedSubscribers += 1;
   }
 
-  return receipt(true, s2Did, tier, topic, qos, payloadHash, undefined, matchedSubscribers);
+  return receipt(true, s2Did, tier, topic, qos, payloadHash, undefined, verification.migratedFromV3, verification.version, canonicalDid, matchedSubscribers);
 }
 
 /** 任何持合法 S2-DID 的智能体按需订阅/拉取最新广播流。 */
 export function subscribeMqttFeed(s2Did: string, topicFilter: string, limit = 20): RetainedMessage[] {
-  if (!validateS2DID(s2Did)) {
+  if (!verifyAndMigrateS2DID(s2Did).valid) {
     throw new Error(`Invalid S2-DID: ${s2Did}`);
   }
-  const set = subscriptions.get(s2Did) ?? new Set<string>();
+  const canonicalDid = verifyAndMigrateS2DID(s2Did).canonicalDid;
+  const set = subscriptions.get(canonicalDid) ?? new Set<string>();
   set.add(topicFilter);
-  subscriptions.set(s2Did, set);
+  subscriptions.set(canonicalDid, set);
 
   return retained
     .filter((m) => topicMatches(topicFilter, m.topic))
@@ -134,11 +144,17 @@ function receipt(
   qos: 0 | 1 | 2,
   payloadHash: string,
   reason?: string,
+  migratedFromV3 = false,
+  version = "invalid",
+  canonicalDid?: string,
   matchedSubscribers = 0,
 ): BroadcastReceipt {
   return {
     accepted,
     s2Did,
+    canonicalDid: canonicalDid ?? s2Did,
+    migratedFromV3,
+    version,
     tier,
     topic,
     qos,

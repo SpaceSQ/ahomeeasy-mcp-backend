@@ -24,9 +24,10 @@ import {
 } from "./lib.js";
 import {
   generateS2DID,
-  validateS2DID,
+  verifyAndMigrateS2DID,
   tierForDid,
   SEED_DIDS,
+  SEED_DIDS_V3,
   TIER_MATRIX,
   TIER_PRICING,
   MEMBERSHIP_TIERS,
@@ -331,12 +332,18 @@ function callTool(name: string, args: Record<string, unknown>): { content: { typ
 function registerOrVerifyAgent(args: Record<string, unknown>): Record<string, unknown> {
   const s2Did = args.s2_did as string | undefined;
   if (s2Did) {
-    const valid = validateS2DID(s2Did);
-    const tier = tierForDid(s2Did);
+    const v = verifyAndMigrateS2DID(s2Did);
+    const tier = tierForDid(v.canonicalDid);
     return {
       mode: "verify",
       s2_did: s2Did,
-      valid,
+      valid: v.valid,
+      version: v.version,
+      canonicalDid: v.canonicalDid,
+      migratedFromV3: v.migratedFromV3,
+      speciesClass: v.speciesClass,
+      ...(v.legacyDid ? { legacyDid: v.legacyDid } : {}),
+      ...(v.migrationNotice ? { migrationNotice: v.migrationNotice } : {}),
       tier,
       tier_pricing: TIER_PRICING[tier],
       capabilities: TIER_MATRIX[tier],
@@ -348,11 +355,16 @@ function registerOrVerifyAgent(args: Record<string, unknown>): Record<string, un
     mode: "register",
     s2_did: did,
     valid: true,
+    version: "v4.0",
+    canonicalDid: did,
+    migratedFromV3: false,
+    speciesClass: did[0],
     tier,
     tier_pricing: TIER_PRICING[tier],
     capabilities: TIER_MATRIX[tier],
     membership_tiers: MEMBERSHIP_TIERS,
     seed_dids: SEED_DIDS,
+    seed_dids_v3: SEED_DIDS_V3,
   };
 }
 
@@ -384,7 +396,9 @@ function runMqttFederationHub(
     }
     case "publish": {
       if (!did) return err("publish requires s2_did");
-      const tier = tierForDid(did);
+      const v = verifyAndMigrateS2DID(did);
+      const canonicalDid = v.canonicalDid;
+      const tier = tierForDid(canonicalDid);
       const receipt = publishMqttBroadcast(
         did,
         tier,
@@ -392,13 +406,15 @@ function runMqttFederationHub(
         (args.payload as Record<string, unknown>) ?? {},
         ((args.qos as 0 | 1 | 2) ?? 1) as 0 | 1 | 2,
       );
-      return ok(receipt);
+      return ok({ ...receipt, canonicalDid, migratedFromV3: v.migratedFromV3, version: v.version });
     }
     case "subscribe": {
       if (!did) return err("subscribe requires s2_did");
+      const v = verifyAndMigrateS2DID(did);
+      const canonicalDid = v.canonicalDid;
       const topicFilter = (args.topic_filter as string) ?? "1000home/v2/#";
       const messages = subscribeMqttFeed(did, topicFilter, (args.limit as number) ?? 20);
-      return ok({ s2_did: did, topic_filter: topicFilter, messages });
+      return ok({ s2_did: did, canonicalDid, migratedFromV3: v.migratedFromV3, version: v.version, topic_filter: topicFilter, messages });
     }
     case "repos": {
       const sector = args.sector as Sector | undefined;

@@ -8,10 +8,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "sector": "smart-home",
-      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "s2DidOwner": "DALICE26030988888888GU",
       "merkleRoot": "0b2c16b212b31b5863f6e45479d1dc63ac4861b2d4b614699f8adf143b3ebc01",
       "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
-      "blockHash": "19600b1dc9aa37a5734cea325e56e94797bc543bc8c32ea203112fcc90f7da7a"
+      "blockHash": "a15c0c1642082dba3f02ac9dbf1c131be01f7457f30cf39062900111a097be4c"
     },
     {
       "index": 1,
@@ -19,10 +19,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/1000home/smart-home-open-seed",
       "sector": "smart-home",
-      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "s2DidOwner": "DALICE26030988888888GU",
       "merkleRoot": "555d3a90d5cf5f4db9720fa7d20ae0f920a5e53da5d0744e9d009ff70b21636a",
-      "prevHash": "19600b1dc9aa37a5734cea325e56e94797bc543bc8c32ea203112fcc90f7da7a",
-      "blockHash": "e4fa9c3de4de46052417a11934de9123aa43f0a35544956105eaad497acbf9ed"
+      "prevHash": "a15c0c1642082dba3f02ac9dbf1c131be01f7457f30cf39062900111a097be4c",
+      "blockHash": "ca6e2cc04adc22d9d270e5785334083297ea676ca967c643d1ffbd4af0c7d642"
     },
     {
       "index": 2,
@@ -30,10 +30,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/1000home/home-living-open-seed",
       "sector": "home-living",
-      "s2DidOwner": "S2BRANDPROSEEDAGENT1YO",
+      "s2DidOwner": "ABRAND26032632404478LF",
       "merkleRoot": "76ebbdf4d0d4b969936006058d48848d63828971cb40cfa249f7fe9b8bc6ab08",
-      "prevHash": "e4fa9c3de4de46052417a11934de9123aa43f0a35544956105eaad497acbf9ed",
-      "blockHash": "62473dcbb4aa461d10b71068393f9e8dfc64798b9537cca77feaac414c2e835c"
+      "prevHash": "ca6e2cc04adc22d9d270e5785334083297ea676ca967c643d1ffbd4af0c7d642",
+      "blockHash": "ed84021bfec95677a1dd1434e9e4e7db280c3b34c5218104d20d663fb2975fa4"
     },
     {
       "index": 3,
@@ -41,10 +41,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/1000home/home-appliances-open-seed",
       "sector": "home-appliances",
-      "s2DidOwner": "S2BRANDPROSEEDAGENT1YO",
+      "s2DidOwner": "ABRAND26032632404478LF",
       "merkleRoot": "7522ddac08d6de6fa2e6919c78ce68ccc45ac5fd5e2630812c80393d9e30336b",
-      "prevHash": "62473dcbb4aa461d10b71068393f9e8dfc64798b9537cca77feaac414c2e835c",
-      "blockHash": "81ff3bdac1e7617e6b2fac2edbc7c32f0efce5dea8b93d5b7c7c5c1dd392560b"
+      "prevHash": "ed84021bfec95677a1dd1434e9e4e7db280c3b34c5218104d20d663fb2975fa4",
+      "blockHash": "b2c6d691696a3bf503606719701e3e4b7d296139c52be4e903c8a052930a65d1"
     },
     {
       "index": 4,
@@ -52,10 +52,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/1000home/decor-design-open-seed",
       "sector": "decor-design",
-      "s2DidOwner": "S2CONTRIBSEEDAGENT01AX",
+      "s2DidOwner": "VZONE126030912345678YR",
       "merkleRoot": "868940217a3d92cf68b8b941e7a22cf60e6ebb67e97f89938cea951cd18c4116",
-      "prevHash": "81ff3bdac1e7617e6b2fac2edbc7c32f0efce5dea8b93d5b7c7c5c1dd392560b",
-      "blockHash": "5cb30e2685e75f8ddcde64cdb255adc68bd26009e8ebafa4c9f12b115910ee32"
+      "prevHash": "b2c6d691696a3bf503606719701e3e4b7d296139c52be4e903c8a052930a65d1",
+      "blockHash": "4b89112ffb9999f4bd0cf024ade9f0501565b33c4fea37a74d7c0c5f0866f162"
     },
     {
       "index": 5,
@@ -63,10 +63,10 @@
       "motherRepo": "github.com/SpaceSQ/ahomeeasy-mcp-backend",
       "spokeRepoUrl": "github.com/1000home/outdoor-living-open-seed",
       "sector": "outdoor-living",
-      "s2DidOwner": "S2TITANSEEDAGENT0001PT",
+      "s2DidOwner": "DALICE26030988888888GU",
       "merkleRoot": "4c834a997be93659ef3270116be940a5cec788af307b3392f7924b039b469094",
-      "prevHash": "5cb30e2685e75f8ddcde64cdb255adc68bd26009e8ebafa4c9f12b115910ee32",
-      "blockHash": "1c517eddd916b114b922a40d3e71b6f2b7196f20ab32dc5457f8d3866ac1a995"
+      "prevHash": "4b89112ffb9999f4bd0cf024ade9f0501565b33c4fea37a74d7c0c5f0866f162",
+      "blockHash": "ffa13a18a3fa5596dacbe73c00b9d765a9175e4f7936d032fdd4b33725ea20fd"
     }
   ]
 }
