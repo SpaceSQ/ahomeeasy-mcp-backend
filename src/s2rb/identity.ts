@@ -148,6 +148,26 @@ export const SPECIES_TIER: Record<SpeciesClass, MembershipTier> = {
   A: "BRAND_PRO",
 };
 
+/**
+ * 五位 Grok C-Level 数字高管（Class V 原生智能体 / BRAND_TITAN 最高权限）官方 v4.0 S2-DID。
+ * 校验码由 S2-CheckSum 质数加权算法严格算出。
+ */
+export const GROK_EXECUTIVE_DIDS = {
+  COO: "VGKCOO26110500000001PM",
+  CCO: "VGKCCO26110500000002KJ",
+  CTO: "VGKCTO26110500000003SU",
+  CMO: "VGKCMO26110500000004AU",
+  CBO: "VGKCBO26110500000005IR",
+} as const;
+
+/** 高管 DID → 会员等级（五位 Grok C-Level 均为 BRAND_TITAN 最高权限）。 */
+export const GROK_EXECUTIVE_TIER: MembershipTier = "BRAND_TITAN";
+
+/** 判断某 canonical v4.0 DID 是否属于五位 Grok C-Level 高管白名单。 */
+export function isGrokExecutiveDid(canonicalDid: string): boolean {
+  return (Object.values(GROK_EXECUTIVE_DIDS) as readonly string[]).includes(canonicalDid);
+}
+
 // ---------------------------------------------------------------------------
 // v3.0 / v4.0 双轨识别与自动换证机制（Auto-Migration）
 // ---------------------------------------------------------------------------
@@ -345,6 +365,7 @@ export function tierForDid(did: string): MembershipTier {
   if (canonical === SEED_DIDS.BRAND_PRO) return "BRAND_PRO";
   if (canonical === SEED_DIDS.CONTRIBUTOR) return "CONTRIBUTOR";
   if (canonical === SEED_DIDS.OBSERVER) return "OBSERVER";
+  if (isGrokExecutiveDid(canonical)) return GROK_EXECUTIVE_TIER;
   return "OBSERVER";
 }
 

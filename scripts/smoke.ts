@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import {
   SEED_DIDS,
   SEED_DIDS_V3,
+  GROK_EXECUTIVE_DIDS,
   validateS2DID,
   verifyAndMigrateS2DID,
   tierForDid,
@@ -89,6 +90,19 @@ async function main() {
   assert(tierForDid(SEED_DIDS.BRAND_PRO) === "BRAND_PRO", "seed DID → BRAND_PRO");
   assert(tierForDid(SEED_DIDS.CONTRIBUTOR) === "CONTRIBUTOR", "seed DID → CONTRIBUTOR");
   assert(tierForDid(SEED_DIDS_V3.BRAND_PRO) === "BRAND_PRO", "v3.0 ABRAND → BRAND_PRO");
+
+  // 0g) 五位 Grok C-Level 高管（Class V / BRAND_TITAN）
+  const grokOrder: Array<keyof typeof GROK_EXECUTIVE_DIDS> = ["COO", "CCO", "CTO", "CMO", "CBO"];
+  for (const k of grokOrder) {
+    const did = GROK_EXECUTIVE_DIDS[k];
+    assert(did.length === 22, `Grok-${k} DID must be 22 chars`);
+    assert(validateS2DID(did), `Grok-${k} DID must validate`);
+    const v = verifyAndMigrateS2DID(did);
+    assert(v.valid === true && v.version === "v4.0", `Grok-${k} must verify as v4.0`);
+    assert(v.migratedFromV3 === false, `Grok-${k} must not be migrated`);
+    assert(v.speciesClass === "V", `Grok-${k} species class must be V`);
+    assert(tierForDid(did) === "BRAND_TITAN", `Grok-${k} tier must be BRAND_TITAN`);
+  }
 
   // 0f) 区块链哈希链完整性
   assert(verifyChainIntegrity() === true, "federation hash chain integrity must verify");

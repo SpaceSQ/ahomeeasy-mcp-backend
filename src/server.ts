@@ -28,6 +28,7 @@ import {
   tierForDid,
   SEED_DIDS,
   SEED_DIDS_V3,
+  GROK_EXECUTIVE_DIDS,
   TIER_MATRIX,
   TIER_PRICING,
   MEMBERSHIP_TIERS,
@@ -365,6 +366,7 @@ function registerOrVerifyAgent(args: Record<string, unknown>): Record<string, un
     membership_tiers: MEMBERSHIP_TIERS,
     seed_dids: SEED_DIDS,
     seed_dids_v3: SEED_DIDS_V3,
+    grok_executive_dids: GROK_EXECUTIVE_DIDS,
   };
 }
 
